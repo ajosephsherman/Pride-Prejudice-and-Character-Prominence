@@ -1,0 +1,520 @@
+###  FINAL PROJECT: Character names and their frequency in Pride and Prejudice
+###  Name: Alex Sherman
+
+###This code finds the "density" of character names in Pride and Prejudice
+###, that is, the frequency with which characters' names appear
+###in sections of the novel.  (Both uniform 1000-word segments and chapters are 
+###used as sections.)  Along the way, it makes a master list of all the character names.
+###The final output is a series of violin plots, made using the vioplot package,
+###that show the "densities" of several sets of character names.
+
+###Note that the code is designed for Pride and Prejudice, but the functions
+###could be used to analyze other novels that capitalize character names and 
+###have proper grammar and spelling (especially capitalization).
+
+
+###Functions
+
+#first we'll need to figure out the formal titles with periods in the novel (e.g. "Rev.")
+#this function outputs a vector of such titles
+#the input should be a character vector that is split at spaces, with the spaces removed
+getPotTitles <- function(novel) {
+  #error checking
+  #make sure the novel is a character vector
+  if(!is.character(novel)) {
+    stop("Not a character vector")
+  }
+  if(length(novel) == 0) {
+    stop("Length zero novel")
+  }
+  #make sure the novel is split into words (not just one long element)
+  if(length(novel) == 1) {
+    stop("Split the novel into a vector of individual words")
+  }
+  if(any(grepl(novel, pattern = " "))) {
+    warning("Some elements contain spaces--may cause incorrect searching for character names.")
+  }
+  
+  #find the positions all the words that have periods on the end
+  #including the ends of sentences
+  periodWordPos <- grepl(novel, pattern = "[[:upper:][:alnum:]{1,}]\\.")
+  #find the actual words
+  periodWords <- novel[which(periodWordPos)]
+  #now find the positions of those that start with upper-case letters
+  potTitlePos <- grepl(periodWords, pattern = "^[[:upper:]]")
+  #return the potential titles (ignoring repeats)
+  return(unique(periodWords[which(potTitlePos)]))
+}
+
+#this function gives a vector of the proper nouns in the novel,
+#ignoring those words that are capitalized from being the starts of sentences.
+#it does NOT count their occurrence--it only gives the POSSIBLE names that still need to be counted
+#novel (the text to find characters in) should be a character vector, split at spaces
+#titles (the formal titles with periods in the text, like Mr.) should include the periods
+#titles is necessary, but it can be length 0
+getNames <- function(novel, titles) {
+  #error checking for the novel
+  #make sure it's of length > 1
+  if(!is.character(novel)) {
+    stop("Novel is not a character vector")
+  }
+  if(length(novel) == 0) {
+    stop("Length zero novel")
+  }
+  #make sure the novel is split into words (not just one long element)
+  if(length(novel) == 1) {
+    stop("Split the novel a vector of individual words")
+  }
+  if(any(grepl(novel, pattern = " "))) {
+    warning("Some elements of the novel contain spaces--
+            may cause incorrect searching for character names.")
+  }
+  #error checking for the titles
+  #make sure it's a character vector
+  if(!is.character(titles)) {
+    stop("Title is not a character vector")
+  }
+  #check if they gave you titles
+  if(length(titles) == 0) {
+    warning("No titles entered")
+  }
+  #check if the titles contain spaces
+  if(any(grepl(titles, pattern = " "))) {
+    warning("Some elements of the titles contain spaces--
+            may cause incorrect searching for character names.")
+  }
+  
+  
+  #get all the words with upper case characters
+  uppers <- grepl(novel, pattern = "[[:upper:]]")
+  
+  #now figure out which comes after periods, ?, or !
+  #(this may include Mr. and Mrs. -- I address those below)
+  sentEnds <- grepl(novel, pattern = "\\.|\\?|!")
+  #shift those up an index
+  #(note that the ends of the document are NOT the novels, so this is OK)
+  sentEnds <- which(sentEnds) + 1
+  #ignore the ones after periods
+  uppers[sentEnds] <- FALSE
+  
+  #now figure out which are just the start of chapters
+  chapStarts <- which(grepl(novel, pattern = "Chapter")) + 2 #+2 to skip the chapter number
+  #ignore those
+  uppers[chapStarts] <- FALSE
+  
+  #now get every name that comes after a title (to recapture those)
+  postTitlePos <- logical(length(novel))
+  for(i in seq_along(titles)) {
+    thisTitle <- titles[i]
+    #find the names that come after titles
+    postThisTitlePos <- c(FALSE, grepl(novel, pattern = thisTitle))
+    postThisTitlePos <- postThisTitlePos[-length(postThisTitlePos)]
+    #add those positions to the master vector
+    postTitlePos <- postTitlePos | postThisTitlePos
+  }
+  
+  #now add those back to uppers to get all the name positions
+  uppers[which(postTitlePos)] <- TRUE
+  
+  #we now have the raw names
+  rawNames <- unique(novel[uppers])
+  
+  #but these still have punctuation marks at the end
+  #get rid of the names with punctuation marks
+  #(this means that if a name only appears at the end of a sentence or clause, we ignore it)
+  goodNamePos <- !grepl(rawNames, pattern = "[[:punct:]]")
+  goodNames <- rawNames[which(goodNamePos)]
+  
+  #then return the unique names
+  return(goodNames)
+  }
+
+#this function counts the number of times a name appears in one section
+#novelPart is the section of the novel (as a character vector, without spaces) that we're looking at
+#charName (a length 1 character vector) is the name of the character we're searching for
+oneSect <- function(novelPart, charName) {
+  #error checking
+  #make sure both are character vectors
+  if(!is.character(novelPart)) {
+    stop("The novel part is not a character vector")
+  }
+  if(!is.character(charName)) {
+    stop("The character's name is not a character vector")
+  }
+  #make sure the novel is not length zero
+  if(length(novelPart) == 0) {
+    stop("The novel section is length zero")
+  }
+  #and not length 1 (i.e. that the words are split up)
+  if(length(novelPart) == 1) {
+    stop("The novel is length one.  Be sure to split up each word.")
+  }
+  #warn about spaces
+  if(any(grepl(novelPart, pattern = " "))) {
+    warning("Spaces in the novelPart.  Make cause errors in searching.")
+  }
+  #make sure charName is length 1 (just one name)
+  if(length(charName) != 1) {
+    stop("charName is not length 1.")
+  }
+  if(any(grepl(charName, pattern = " "))) {
+    warning("charName has spaces.  Will cause searching errors.")
+  }
+  
+  #aside from error checking the function is pretty simple
+  #just give the number of matches (the number of TRUE's in grepl looking for charName)
+  return(length(which(grepl(novelPart, pattern = charName, fixed = TRUE))))
+}
+
+#this function makes a vector (in my case a row of a matrix) amenable to violin plotting
+#for each section of the novel, if that section has i occurrences of the character
+#it inserts that section's number i times into a vector
+#then returns that vector
+#(so if Darcy is mentioned 10 times in chapter 2, 
+#the output will have 2 repeated 10 times)
+#the input, row, should have an element for each section, and each element gives the number of occurrences in that section
+#row has to be a numeric vector of greater than zero length
+vioplotter <- function(row) {
+  #error checking
+  if(length(row) == 0) {
+    stop("row is length zero")
+  }
+  #ensure it's a numeric
+  if(!is.numeric(row)){
+    stop("row is not of type numeric")
+  }
+  
+  #I know this is slow but I can't figure out how to do it faster
+  #since we don't know how long output will be
+  output <- numeric(0)
+  #adds i to the output as many times as the character appears in section i
+  for(i in seq_along(row)) {
+    output <- c(output, rep(i, row[i]))
+  }
+  #return the vioplot-friendly vector
+  return(output)
+}
+
+
+###Inputs
+
+#the dataset (Pride and Prejudice) can be found at:
+# https://www.gutenberg.org/cache/epub/1342/pg1342.txt
+
+PnPraw <- scan("C:\\Users\\Alex\\Documents\\358 (R)\\PrideAndPrejudice.txt", #change filename as needed
+               what = character(0), #tells it to separate at spaces
+               quote = NULL) #need this or else it lumps quotes into one element!
+
+#need to install the vioplot package & get it in the library
+#get the vioplot package to make violin plots
+install.packages("vioplot")
+library(vioplot)
+
+###Main program
+
+#first we need to manually check the titles
+#we have to do this manually because the potential titles are idiosyncratic
+potTitles <- getPotTitles(PnPraw)
+potTitles
+#Mr., Mrs., St., and Dr. 
+titles <- potTitles[c(1, 2, 12, 125)]
+
+#have to trim off the the Project Gutenberg info
+#clean the header
+#the file has "By Jane Austen" before the first chapter
+bookStart <- which(grepl(PnPraw, pattern = "Austen"))
+#see which looks like the right one
+PnPraw[100:110]
+#it's 105
+PnPnoHeader <- PnPraw[106:length(PnPraw)] 
+
+#now clean the tail
+#it ends "End of the "
+bookEnd <- which(grepl(PnPnoHeader, pattern = "End"))
+#see which looks right
+bookEnd
+#only one, so that's it
+bookEnd <- bookEnd - 1
+#save the trimmed text
+PnP <- PnPnoHeader[1:bookEnd]
+
+#look at the PnP names in alphabetical order
+PnPnames <- sort(getNames(PnP, titles))
+#clean them up a bit (manually), removing obvious place names and errors
+PnPnames <- PnPnames[c(-1, -2, -14, -15, -16, -17, -18, -23, -27, -28, -31, -35,
+                       -36, -38, -40, -43, -45, -47, -50, -53, -56, -59, -60, -66,
+                       -67, -68, -69, -71, -72, -76, -77, -78, -79, -80,  -81, -83,
+                       -87, -88, -90, -91, -94, -97, -100, -108, -109, -111, -112,
+                       -113, -115, -116, -117, -118, -121, -122, -132, -135, -136,
+                       -137, -138, -139, -140, -141, -142, -143, -144, -145, -146,
+                       -147, -148, -149, -150, -151, -152, -154, -155)]
+
+
+
+#now we have a list of names!
+#we can now count frequency
+
+#we'll split the book in two ways: by every thousand characters, and by chapters
+#we'll use two matrices to store the values
+#the rows are the names
+#the columns are the frequency in each section
+#the matrix for splitting every 1000 words
+nameFreq1000s <- matrix(0, nrow = length(PnPnames), 
+                        ncol = ceiling(length(PnP) / 1000))
+#the matrix for splitting every chapter
+PnPchapStarts <- which(grepl(PnP, pattern = "Chapter"))
+nameFreqChaps <- matrix(0, nrow = length(PnPnames),
+                        ncol = length(PnPchapStarts))
+#name the rows
+rownames(nameFreq1000s) <- PnPnames
+rownames(nameFreqChaps) <- PnPnames
+
+#now to split the book
+#we'll make it into a list, each "train car" of which is a section
+#(either a thousand words or a chapter)
+
+#initialize an empty list
+PnPby1000s <- vector(mode = "list", length = ceiling(length(PnP) / 1000))
+#fill each "train car" with the 1000 word section
+filler <- seq_len(ceiling(length(PnP) / 1000)) - 1
+for(i in filler) {
+  start <- i * 1000 + 1
+  end <- min(length(PnP), (i + 1) * 1000)
+  PnPby1000s[[i + 1]] <- PnP[start:end]
+}
+#and the same with the chapters
+PnPbyChaps <- vector(mode = "list", length = length(PnPchapStarts))
+#to avoid Na error at end of book
+PnPchapStarts <- c(PnPchapStarts, 100000000)
+#fill each entry of the list with a chapter
+for(i in seq_len(length(PnPchapStarts) - 1)) {
+  start <- PnPchapStarts[i]
+  end <- min(length(PnP), (PnPchapStarts[i + 1] - 1))
+  PnPbyChaps[[i]] <- PnP[start:end]
+}
+
+#go through each name and fill out the row
+for(i in seq_along(rownames(nameFreq1000s))) {
+  #make a vector of the occurrences of the name in each 1000 word entry
+  #then assign that new vector to the row
+  nameFreq1000s[i, ] <- sapply(PnPby1000s, 
+                               oneSect, 
+                               charName = rownames(nameFreq1000s)[i])
+}
+
+#same for the chapters
+for(i in seq_along(rownames(nameFreqChaps))) {
+  nameFreqChaps[i, ] <- sapply(PnPbyChaps, 
+                               oneSect, 
+                               charName = rownames(nameFreqChaps)[i])
+}
+
+#make sure that we got the same total names
+all(sort(rowSums(nameFreqChaps)) == sort(rowSums(nameFreq1000s)))
+#these two matrices are the final results
+
+
+#let's reorganize the matrices to go from highest character to lowest
+
+#first, get the names in descending order of occurrence
+sorter1000s <- sort(rowSums(nameFreq1000s), decreasing = TRUE)
+#copy our original matrix
+nf1000copy <- nameFreq1000s
+
+#this loop goes through the matrix's row, replacing the ith row (alphabetically) 
+#with the row of the ith most common character 
+for(i in seq_along(sorter1000s)) {
+  nameFreq1000s[i, ] <- nf1000copy[which(rownames(nf1000copy) 
+                                         == names(sorter1000s)[i]), ]
+}
+#rename the rows to keep track of who's who
+rownames(nameFreq1000s) <- names(sorter1000s)
+#do the same thing with the chapter matrix
+sorterChaps <- sort(rowSums(nameFreqChaps), decreasing = TRUE)
+nfchapscopy <- nameFreqChaps
+nfchapscopy
+for(i in seq_along(sorterChaps)) {
+  nameFreqChaps[i, ] <- nfchapscopy[which(rownames(nfchapscopy) 
+                                          == names(sorterChaps)[i]), ]
+}
+rownames(nameFreqChaps) <- names(sorterChaps)
+
+
+
+###Outputs
+
+#first, let's look at the whole dataset (it's not too big)
+nameFreq1000s
+nameFreqChaps
+
+#second, let's take a preliminary look at Darcy
+#to see how the two ways of splitting the novel change the data's layout
+nameFreq1000s[which(rownames(nameFreq1000s) == "Darcy"), ]
+nameFreqChaps[which(rownames(nameFreqChaps) == "Darcy"), ]
+#the chapter split leads to a "spikier" data set (in Darcy's case)
+#even more than we'd expect to be caused by a smaller number of samples in and of itself
+#this makes sense--Austen lumps characters into chapters, so we see a lot of Darcy in one chapter (the one with 41 occurrences), then he disappears
+
+
+#now let's plot!
+
+#a note before plotting: change the h-value of vioplot 
+#to make the violin plot more or less smooth.
+#higher h-values make the plots smoother; lower makes them more abrupt
+
+#plot the top 15 names
+vioplot(vioplotter(nameFreq1000s[1, ]),
+        vioplotter(nameFreq1000s[2, ]),
+        vioplotter(nameFreq1000s[3, ]),
+        vioplotter(nameFreq1000s[4, ]),
+        vioplotter(nameFreq1000s[5, ]),
+        vioplotter(nameFreq1000s[6, ]),
+        vioplotter(nameFreq1000s[7, ]),
+        vioplotter(nameFreq1000s[8, ]),
+        vioplotter(nameFreq1000s[9, ]),
+        vioplotter(nameFreq1000s[10,]),
+        vioplotter(nameFreq1000s[11,]),
+        vioplotter(nameFreq1000s[12,]),
+        vioplotter(nameFreq1000s[13,]),
+        vioplotter(nameFreq1000s[14,]),
+        vioplotter(nameFreq1000s[15,]),
+        h = 4,
+        names = rownames(nameFreq1000s)[1:15])
+mtext("Top 15 Names", side = 3)
+mtext("Segments (by 1000 words)", side = 2, line = 2)
+
+#see if chapter looks different
+vioplot(vioplotter(nameFreqChaps[1, ]),
+        vioplotter(nameFreqChaps[2, ]),
+        vioplotter(nameFreqChaps[3, ]),
+        vioplotter(nameFreqChaps[4, ]),
+        vioplotter(nameFreqChaps[5, ]),
+        vioplotter(nameFreqChaps[6, ]),
+        vioplotter(nameFreqChaps[7, ]),
+        vioplotter(nameFreqChaps[8, ]),
+        vioplotter(nameFreqChaps[9, ]),
+        vioplotter(nameFreqChaps[10,]),
+        vioplotter(nameFreqChaps[11,]),
+        vioplotter(nameFreqChaps[12,]),
+        vioplotter(nameFreqChaps[13,]),
+        vioplotter(nameFreqChaps[14,]),
+        vioplotter(nameFreqChaps[15,]),
+        h = 3,
+        names = rownames(nameFreqChaps)[1:15])
+mtext("Top 15 Names", side = 3)
+mtext("Chapters", side = 2, line = 2)
+
+#now try the top male characters
+rownames(nameFreq1000s)
+maleRows <- c(3, 5, 7, 8, 21, 25)
+vioplot(vioplotter(nameFreq1000s[3, ]),
+        vioplotter(nameFreq1000s[5, ]),
+        vioplotter(nameFreq1000s[7, ]),
+        vioplotter(nameFreq1000s[8, ]),
+        vioplotter(nameFreq1000s[21, ]),
+        vioplotter(nameFreq1000s[25, ]),
+        h = 4,
+        names = rownames(nameFreq1000s)[maleRows])
+mtext("Top Male Characters", side = 3)
+mtext("Segments (1000 words)", side = 2, line = 2)
+#odd-I didn't realize Wickham was so prominent so late...
+#let's check chapters to be sure
+vioplot(vioplotter(nameFreqChaps[3, ]),
+        vioplotter(nameFreqChaps[5, ]),
+        vioplotter(nameFreqChaps[7, ]),
+        vioplotter(nameFreqChaps[8, ]),
+        vioplotter(nameFreqChaps[21, ]),
+        vioplotter(nameFreqChaps[25, ]),
+        h = 3,
+        names = rownames(nameFreqChaps)[maleRows])
+mtext("Top Male Characters", side = 3)
+mtext("Chapters", side = 2, line = 2)
+
+#let's do the top female characters
+rownames(nameFreq1000s)
+femaleRows <- c(1, 2, 4, 6, 9, 10, 13, 15, 17, 24)
+vioplot(vioplotter(nameFreq1000s[1, ]),
+        vioplotter(nameFreq1000s[2, ]),
+        vioplotter(nameFreq1000s[4, ]),
+        vioplotter(nameFreq1000s[6, ]),
+        vioplotter(nameFreq1000s[9, ]),
+        vioplotter(nameFreq1000s[10, ]),
+        vioplotter(nameFreq1000s[13, ]),
+        vioplotter(nameFreq1000s[15, ]),
+        vioplotter(nameFreq1000s[17, ]),
+        vioplotter(nameFreq1000s[24, ]),
+        h = 4,
+        names = rownames(nameFreq1000s)[femaleRows])
+mtext("Top Female Characters", side = 3)
+mtext("Segments (by 1000s)", side = 2, line = 2)
+#do it for chapters, just to be sure
+vioplot(vioplotter(nameFreqChaps[1, ]),
+        vioplotter(nameFreqChaps[2, ]),
+        vioplotter(nameFreqChaps[4, ]),
+        vioplotter(nameFreqChaps[6, ]),
+        vioplotter(nameFreqChaps[9, ]),
+        vioplotter(nameFreqChaps[10, ]),
+        vioplotter(nameFreqChaps[13, ]),
+        vioplotter(nameFreqChaps[15, ]),
+        vioplotter(nameFreqChaps[17, ]),
+        vioplotter(nameFreqChaps[24, ]),
+        h = 3,
+        names = rownames(nameFreqChaps)[femaleRows])
+mtext("Top Female Characters", side = 3)
+mtext("Chapters", side = 2, line = 2)
+
+#let's look at the characters who end up together
+rownames(nameFreq1000s)
+coupleRows <- c(1, 2, 3, 5, 6, 7, 8, 9, 15)
+vioplot(vioplotter(nameFreq1000s[1, ]),
+        vioplotter(nameFreq1000s[2, ]),
+        vioplotter(nameFreq1000s[3, ]),
+        vioplotter(nameFreq1000s[5, ]),
+        vioplotter(nameFreq1000s[6, ]),
+        vioplotter(nameFreq1000s[7, ]),
+        vioplotter(nameFreq1000s[8, ]),
+        vioplotter(nameFreq1000s[9, ]),
+        vioplotter(nameFreq1000s[15, ]),
+        h = 4,
+        names = rownames(nameFreq1000s)[coupleRows]
+        )
+mtext("Successful Couples", side = 3)
+mtext("Segments (by 1000 words)", side = 2, line = 2)
+#check the chapters
+vioplot(vioplotter(nameFreqChaps[1, ]),
+        vioplotter(nameFreqChaps[2, ]),
+        vioplotter(nameFreqChaps[3, ]),
+        vioplotter(nameFreqChaps[5, ]),
+        vioplotter(nameFreqChaps[6, ]),
+        vioplotter(nameFreqChaps[7, ]),
+        vioplotter(nameFreqChaps[8, ]),
+        vioplotter(nameFreqChaps[9, ]),
+        vioplotter(nameFreqChaps[15, ]), 
+        h = 3,
+        names = rownames(nameFreqChaps)[coupleRows]
+)
+mtext("Successful Couples", side = 3)
+mtext("Chapters", side = 2, line = 2)
+
+#look at Elizabeth's rejected suitors and compare them to her
+rownames(nameFreq1000s)
+failureRows <- c(1, 2, 7, 8)
+vioplot(vioplotter(nameFreq1000s[1, ]),
+        vioplotter(nameFreq1000s[2, ]),
+        vioplotter(nameFreq1000s[7, ]),
+        vioplotter(nameFreq1000s[8, ]), 
+        h=4, 
+        names = rownames(nameFreq1000s)[failureRows])
+mtext("Elizabeth and Her Failed Suitors", side = 3)
+mtext("Segments (by 1000)", side = 2, line = 2)
+#check the chapters
+vioplot(vioplotter(nameFreqChaps[1, ]),
+        vioplotter(nameFreqChaps[2, ]),
+        vioplotter(nameFreqChaps[7, ]),
+        vioplotter(nameFreqChaps[8, ]), 
+        h=3, 
+        names = rownames(nameFreq1000s)[failureRows])
+mtext("Elizabeth and Her Failed Suitors", side = 3)
+mtext("Chapters", side = 2, line = 2)
+
+###The end
